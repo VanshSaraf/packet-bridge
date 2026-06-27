@@ -1,103 +1,217 @@
 # PacketBridge
 
-PacketBridge is a Secure P2P LAN Transfer Engine planned around automatic local peer discovery, reliable chunked file transfer, checkpointed sessions, and SHA-256 integrity verification.
+PacketBridge is a C++17 peer-to-peer LAN transfer engine for discovering nearby peers and moving files directly across a local network. It combines UDP-based peer discovery, TCP-based chunked file transfer, checkpoint continuation, and SHA-256 integrity verification in a small, readable systems-programming codebase.
 
-## Planned Features
+## Features
 
-- UDP-based automatic peer discovery on the local network.
-- TCP-based reliable file transfer using fixed-size chunks.
-- Custom binary protocol with versioned message types.
-- Transfer sessions backed by file manifests.
-- ACK/checkpoint-based continuation support for interrupted transfers.
-- SHA-256 verification for received files.
-- Clean modular C++17 implementation with CMake builds.
+| Area | Status | Notes |
+| --- | --- | --- |
+| UDP LAN discovery | Implemented | Broadcast announcements with a live peer table. |
+| TCP file transfer | Implemented | Receiver listens on a fixed transfer port; sender connects directly. |
+| File manifest | Implemented | Filename, size, chunk size, chunk count, protocol version, and session placeholder. |
+| Chunked transfer | Implemented | Per-chunk headers include index, byte offset, and payload size. |
+| Checkpoint continuation | Implemented | Receiver requests only missing chunks when a matching checkpoint exists. |
+| Progress metrics | Implemented | Progress bar, chunks, speed, ETA, elapsed time, and summaries. |
+| SHA-256 verification | Implemented | Sender sends expected digest; receiver hashes output and compares. |
+| Encryption | Not implemented | SHA-256 verifies integrity, not confidentiality. |
+| Automated tests | Planned | Current verification is manual smoke testing. |
 
 ## Architecture Overview
 
-- `apps/`: command-line entry points for listener, broadcaster, sender, and receiver roles.
-- `include/common` and `src/common`: shared constants, logging, and general utilities.
-- `include/net` and `src/net`: socket runtime compatibility, endpoints, TCP client/server wrappers, UDP socket wrapper, low-level socket helpers, and protocol types.
-- `include/discovery` and `src/discovery`: UDP discovery message helpers and peer models.
-- `include/transfer` and `src/transfer`: manifest serialization, checkpoint recovery, filename safety helpers, file sizing, chunk counting, and future transfer session logic.
-- `docs/`: design notes and protocol documentation as the engine evolves.
-- `tests/`: unit and integration tests.
+PacketBridge is organized as a small core library plus four command-line apps:
 
-## Current Status
+- `packetbridge_listener`: listens for UDP discovery announcements and prints live peers.
+- `packetbridge_broadcaster`: broadcasts this device as an available PacketBridge peer.
+- `packetbridge_receiver`: listens for one TCP file transfer and writes the received file.
+- `packetbridge_sender`: connects to a receiver and transfers a file.
 
-Foundation/scaffold, reusable networking core, UDP LAN discovery, and chunked TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, chunk headers, checkpoint-based interrupted-transfer continuation, progress metrics, byte-count verification, and SHA-256 integrity verification for received files.
+Core modules:
 
-Transfer data is not encrypted; SHA-256 verifies file integrity, not confidentiality.
+- `common`: logging and shared constants.
+- `net`: cross-platform socket runtime, socket helpers, endpoint helpers, TCP wrappers, UDP wrapper, and protocol structs.
+- `discovery`: discovery message builder/parser and peer model.
+- `transfer`: manifests, chunk headers, checkpoint files, SHA-256 hash packet handling, progress tracking, and file utilities.
+- `crypto`: self-contained SHA-256 file hashing.
 
-## Discovery Usage
+## How It Works
 
-Start a listener:
-
-```sh
-./build/packetbridge_listener
-```
-
-Start a broadcaster with an optional peer name:
-
-```sh
-./build/packetbridge_broadcaster my-device
-```
-
-The broadcaster sends a UDP packet every 2 seconds on the configured discovery port. The listener accepts compatible packets, ignores malformed input, updates known peers, and periodically prints a live peer table.
-
-## File Transfer Usage
-
-Start the receiver first:
-
-```sh
-./build/packetbridge_receiver
-```
-
-Optionally choose an output directory:
-
-```sh
-./build/packetbridge_receiver ./received
-```
-
-From another terminal or device, send a file to the receiver IP:
-
-```sh
-./build/packetbridge_sender 192.168.1.25 ./example.bin
-```
-
-The sender connects to the default transfer TCP port, sends a binary file manifest, then streams chunks. Each chunk has a binary header with its index, byte offset, and payload size. After all chunks, the sender sends the expected SHA-256 digest. The receiver writes `received_<filename>`, validates each chunk header, reports progress with speed and ETA, verifies that the received byte count matches the manifest, computes SHA-256 locally, and compares it with the sender-provided digest.
-
-If a transfer is interrupted, restart the receiver and sender with the same file and output directory. The receiver uses a `received_<filename>.pbcheckpoint` sidecar file to request only missing chunks. The checkpoint file is removed after successful SHA-256 verification.
-
-Example receiver integrity output:
+Discovery uses a simple UDP text packet:
 
 ```text
-Expected SHA-256: <64 lowercase hex characters>
-Computed SHA-256: <64 lowercase hex characters>
-SHA-256 integrity verified
+PACKETBRIDGE_DISCOVER|protocol_version|peer_name|transfer_port
 ```
 
-## Build Instructions
+The listener validates incoming announcements, ignores malformed packets, filters incompatible protocol versions, and maintains a peer table keyed by IP address plus transfer port.
+
+Transfer uses a direct TCP connection:
+
+```text
+sender -> manifest -> receiver
+receiver -> continuation request with missing chunk indexes -> sender
+sender -> chunk header -> receiver
+sender -> chunk bytes -> receiver
+repeat until requested chunks are complete
+sender -> SHA-256 hash packet -> receiver
+receiver -> local SHA-256 comparison and checkpoint cleanup
+```
+
+If a transfer stops early, the receiver keeps a human-readable `received_<filename>.pbcheckpoint` sidecar file. Restart the receiver and sender with the same file and output directory; the receiver asks for only missing chunks. After successful SHA-256 verification, the checkpoint file is removed.
+
+## Build
 
 ```sh
 cmake -S . -B build
 cmake --build build
 ```
 
-Run a placeholder executable:
-
-```sh
-./build/packetbridge_listener
-```
-
-On multi-configuration generators, such as Visual Studio, the executable may be under a configuration directory:
+On multi-configuration generators, such as Visual Studio:
 
 ```sh
 cmake --build build --config Debug
 ```
 
+The build produces:
+
+```text
+packetbridge_listener
+packetbridge_broadcaster
+packetbridge_receiver
+packetbridge_sender
+```
+
+## Usage Guide
+
+Start discovery listener:
+
+```sh
+./build/packetbridge_listener
+```
+
+Start discovery broadcaster:
+
+```sh
+./build/packetbridge_broadcaster laptop-one
+```
+
+Start a file receiver:
+
+```sh
+./build/packetbridge_receiver ./received
+```
+
+Send a file to a receiver:
+
+```sh
+./build/packetbridge_sender 192.168.1.25 ./example.bin
+```
+
+For local testing, use loopback:
+
+```sh
+./build/packetbridge_receiver /tmp/packetbridge-out
+./build/packetbridge_sender 127.0.0.1 ./example.bin
+```
+
+Each app supports `--help`:
+
+```sh
+./build/packetbridge_sender --help
+```
+
+## Example Output
+
+Sender:
+
+```text
+PacketBridge sender
+Connecting to receiver 127.0.0.1:47111
+Total chunks: 4
+Chunks already present on receiver: 0
+Chunks to send: 4
+[####################] 100.0% | 4/4 chunks | 120.00 MB/s | ETA 00:00
+Expected SHA-256: <64 lowercase hex characters>
+Transfer summary: elapsed 00:00, average 100.00 MB/s
+```
+
+Receiver:
+
+```text
+PacketBridge receiver listening on TCP port 47111
+Incoming file: example.bin
+Chunks requested: 4
+SHA-256 integrity verified
+Transfer complete: ./received/received_example.bin
+```
+
+## Protocol Flow
+
+Discovery:
+
+```text
+broadcaster -> UDP broadcast announcement -> listener
+listener -> validates marker, version, peer name, and transfer port
+listener -> updates peer table and last-seen time
+```
+
+Transfer:
+
+```text
+sender -> binary file manifest -> receiver
+receiver -> missing chunk list -> sender
+sender -> chunk header and chunk payload -> receiver
+receiver -> writes payload at declared byte offset
+sender -> hash packet -> receiver
+receiver -> computes local SHA-256 and compares
+```
+
+Checkpoint continuation:
+
+```text
+receiver -> loads matching checkpoint, if present
+receiver -> sends only missing chunk indexes
+sender -> skips chunks already present on receiver
+receiver -> updates checkpoint after each written chunk
+receiver -> removes checkpoint after successful integrity verification
+```
+
+## Project Structure
+
+```text
+apps/                 Command-line entry points
+include/common/       Shared constants and logging headers
+include/net/          Socket and protocol headers
+include/discovery/    Discovery models and message helpers
+include/transfer/     Transfer helpers and codecs
+include/crypto/       SHA-256 interface
+src/                  Implementations
+docs/                 Architecture, protocol, and testing notes
+tests/                Placeholder for future automated tests
+```
+
+## Current Limitations
+
+- Transfer data is not encrypted.
+- Receiver accepts one sender connection per process run.
+- Discovery uses IPv4 broadcast by default.
+- Checkpoint files trust local disk state and validate completion with final SHA-256.
+- Automated tests are not implemented yet.
+
+## Troubleshooting
+
+- If discovery shows no peers, check local firewall settings and that UDP port `47110` is allowed.
+- If file transfer cannot connect, make sure the receiver is running and TCP port `47111` is reachable.
+- If the receiver reports an integrity failure, keep the output file for inspection and retry the transfer.
+- If CMake is unavailable, install CMake or use an IDE with CMake support.
+- On Windows, the project links Winsock2 automatically through CMake.
+
 ## Roadmap
 
-1. Add ACK tracking for richer sender/receiver status.
+1. Add richer sender/receiver status using acknowledgement messages.
 2. Expand transfer session lifecycle management.
 3. Add optional confidentiality features for transfer data.
-4. Add automated tests for protocol, networking, and transfer workflows.
+4. Add automated unit and integration tests.
+5. Add packaging and release artifacts.
+
+## License
+
+No license file is present yet. Add a license before distributing PacketBridge as an open-source project.

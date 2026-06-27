@@ -23,6 +23,13 @@ namespace {
 
 void print_usage() {
     packetbridge::common::info("Usage: packetbridge_sender <receiver_ip> <file_path>");
+    packetbridge::common::info("Example: packetbridge_sender 192.168.1.25 ./example.bin");
+    packetbridge::common::info("Start packetbridge_receiver on the target machine first.");
+}
+
+bool is_help_arg(const char* arg) {
+    const std::string value = arg == nullptr ? "" : arg;
+    return value == "-h" || value == "--help";
 }
 
 std::uint32_t payload_size_for_chunk(
@@ -101,7 +108,7 @@ bool send_file_chunks(packetbridge::net::TcpSocket& socket,
 int main(int argc, char* argv[]) {
     if (argc != 3) {
         print_usage();
-        return 1;
+        return argc == 2 && is_help_arg(argv[1]) ? 0 : 1;
     }
 
     packetbridge::net::SocketRuntime socket_runtime;
@@ -159,7 +166,7 @@ int main(int argc, char* argv[]) {
     const std::uint64_t already_present =
         manifest.chunk_count - static_cast<std::uint64_t>(request.missing_chunk_indexes.size());
     const bool continuing = already_present > 0;
-    packetbridge::common::info(continuing ? "Continuing interrupted transfer"
+    packetbridge::common::info(continuing ? "Continuing transfer from receiver checkpoint"
                                           : "Starting fresh transfer");
     packetbridge::common::info("Chunks already present on receiver: " +
                                std::to_string(already_present));

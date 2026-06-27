@@ -28,6 +28,17 @@ void handle_signal(int) {
     g_running = false;
 }
 
+void print_usage() {
+    packetbridge::common::info("Usage: packetbridge_listener");
+    packetbridge::common::info("Example: packetbridge_listener");
+    packetbridge::common::info("Listens for UDP discovery announcements and prints live peers.");
+}
+
+bool is_help_arg(const char* arg) {
+    const std::string value = arg == nullptr ? "" : arg;
+    return value == "-h" || value == "--help";
+}
+
 std::string hostname_or_empty() {
     char hostname[256] = {};
     if (gethostname(hostname, sizeof(hostname) - 1) == 0) {
@@ -87,7 +98,12 @@ void print_peer_table(const std::map<std::string, packetbridge::discovery::Peer>
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    if (argc > 1) {
+        print_usage();
+        return argc == 2 && is_help_arg(argv[1]) ? 0 : 1;
+    }
+
     packetbridge::net::SocketRuntime socket_runtime;
 
     std::signal(SIGINT, handle_signal);
@@ -105,6 +121,7 @@ int main() {
     packetbridge::common::info("PacketBridge listener running");
     packetbridge::common::info("Listening for discovery packets on UDP port " +
                                std::to_string(discovery_port));
+    packetbridge::common::info("Peer entries expire after 10 seconds without an announcement");
 
     std::map<std::string, packetbridge::discovery::Peer> peers;
     std::vector<std::uint8_t> buffer(1024);

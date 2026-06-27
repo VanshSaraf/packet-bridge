@@ -24,6 +24,13 @@ namespace {
 
 void print_usage() {
     packetbridge::common::info("Usage: packetbridge_receiver [output_dir]");
+    packetbridge::common::info("Example: packetbridge_receiver ./received");
+    packetbridge::common::info("If output_dir is omitted, files are written to the current directory.");
+}
+
+bool is_help_arg(const char* arg) {
+    const std::string value = arg == nullptr ? "" : arg;
+    return value == "-h" || value == "--help";
 }
 
 std::uint32_t payload_size_for_chunk(
@@ -116,9 +123,9 @@ bool receive_file_chunks(packetbridge::net::TcpSocket& socket,
 }  // namespace
 
 int main(int argc, char* argv[]) {
-    if (argc > 2) {
+    if (argc > 2 || (argc == 2 && is_help_arg(argv[1]))) {
         print_usage();
-        return 1;
+        return argc > 2 ? 1 : 0;
     }
 
     packetbridge::net::SocketRuntime socket_runtime;
@@ -134,6 +141,7 @@ int main(int argc, char* argv[]) {
     packetbridge::common::info("PacketBridge receiver listening on TCP port " +
                                std::to_string(transfer_port));
     packetbridge::common::info("Waiting for one sender connection");
+    packetbridge::common::info("Output directory: " + output_dir);
 
     packetbridge::net::TcpSocket client = server.accept_client();
     if (!client.is_open()) {

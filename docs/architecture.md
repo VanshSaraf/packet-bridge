@@ -1,37 +1,153 @@
-# PacketBridge Architecture Notes
+# PacketBridge Architecture
 
-PacketBridge is organized as a small core library plus role-specific command-line applications.
+PacketBridge is a compact C++17 networking project built around direct LAN peer discovery and file transfer. The codebase favors simple synchronous control flow, explicit protocol messages, and small reusable modules.
 
-The networking layer owns cross-platform socket setup, endpoint conversion, low-level socket helpers, TCP client/server wrappers, and a UDP socket wrapper. Discovery uses UDP broadcast packets to announce local peers, while transfer uses TCP sessions for manifest exchange, checkpoint recovery, chunk streaming, and SHA-256 integrity verification. Future protocol work will add richer acknowledgement tracking.
+## Module Layout
 
-The current TCP wrappers provide connect, listen, accept, send-all, and receive-exact behavior with RAII cleanup. The UDP wrapper provides open, bind, broadcast enablement, receive timeouts, send-to, and receive-from behavior. Transfer v1 uses a compact binary manifest followed by chunk headers and chunk payloads.
+```text
+apps/
+  listener.cpp       UDP discovery listener
+  broadcaster.cpp   UDP discovery announcer
+  receiver.cpp      TCP file receiver
+  sender.cpp        TCP file sender
 
-## Discovery Flow
+include/ and src/
+  common/           constants and logger
+  net/              socket runtime, TCP/UDP wrappers, protocol structs
+  discovery/        peer model and discovery message helpers
+  transfer/         manifest, chunk, checkpoint, hash, and progress helpers
+  crypto/           SHA-256 implementation
+```
 
-The broadcaster builds a text packet in the form `PACKETBRIDGE_DISCOVER|protocol_version|peer_name|transfer_port` and sends it to the LAN broadcast address every 2 seconds. The listener binds to the configured UDP discovery port, validates incoming packets, ignores malformed or incompatible messages, and stores peers by IP address plus transfer port.
+## Discovery Architecture
 
-The listener keeps a live peer table with each peer name, sender IP address, advertised transfer port, protocol version, and last-seen time. Entries are removed after they have not been observed for more than 10 seconds.
+Discovery is decentralized. A broadcaster sends a UDP announcement to the LAN broadcast address every 2 seconds:
 
-## Transfer Flow
+```text
+PACKETBRIDGE_DISCOVER|protocol_version|peer_name|transfer_port
+```
 
-The receiver binds to the default transfer TCP port and accepts one sender connection. The sender connects to the receiver IP, sends a binary file manifest with protocol version, filename, file size, chunk size, chunk count, and a placeholder session id, then streams chunked file data.
+The listener binds to the configured discovery port, validates each packet, and stores live peers by IP address plus transfer port. Peer entries expire after 10 seconds without a fresh announcement.
 
-Transfer v1 flow:
+```text
+broadcaster -> UDP broadcast -> listener
+listener -> parse and validate
+listener -> update peer table
+listener -> print live peer list
+```
+
+## Transfer Architecture
+
+File transfer uses one TCP connection from sender to receiver. The receiver listens on the default transfer port and accepts one sender connection per process run.
 
 ```text
 sender -> manifest -> receiver
-receiver -> continuation request with missing chunk indexes -> sender
-sender -> chunk header -> receiver validates index, offset, and size
-sender -> chunk bytes -> receiver writes bytes at the declared offset
-repeat until all missing chunks are complete
-sender -> SHA-256 hash packet -> receiver
-receiver -> local SHA-256 comparison and checkpoint cleanup
+receiver -> continuation request -> sender
+sender -> chunk header -> receiver
+sender -> chunk payload -> receiver
+sender -> hash packet -> receiver
+receiver -> verify output
 ```
 
-The receiver sanitizes the incoming filename, writes the output as `received_<filename>`, and stores checkpoint state beside it as `received_<filename>.pbcheckpoint`. The checkpoint records manifest metadata and completed chunk indexes. On restart, a matching checkpoint lets the receiver request only missing chunks. After a successful SHA-256 comparison, the checkpoint file is removed.
+The manifest describes the transfer before bytes move:
 
-The receiver validates each chunk before accepting the payload. Sender and receiver both report bytes transferred, chunk counts, elapsed time, transfer speed, and ETA.
+- protocol version
+- filename
+- file size
+- chunk size
+- chunk count
+- session placeholder
 
-SHA-256 verification detects accidental corruption or mismatched content. It does not encrypt transfer data or provide confidentiality; those capabilities remain future work.
+Each chunk is framed with a header before its payload:
 
-This document is intentionally brief for the foundation stage and should grow alongside the protocol and session implementations.
+- session placeholder
+- chunk index
+- byte offset
+- payload size
+
+The receiver validates the chunk header before accepting payload bytes and writes the payload at the declared offset.
+
+## Checkpoint Architecture
+
+Checkpoint continuation is receiver-driven. After the manifest arrives, the receiver checks for a matching sidecar file:
+
+```text
+received_<filename>.pbcheckpoint
+```
+
+The checkpoint records:
+
+- original filename
+- file size
+- chunk size
+- total chunks
+- completed chunk indexes
+
+If the checkpoint matches the manifest and the output file exists, the receiver sends a continuation request listing missing chunk indexes. The sender skips chunks already present on the receiver.
+
+```text
+receiver -> load checkpoint
+receiver -> compute missing chunks
+receiver -> send missing chunk list
+sender -> send only requested chunks
+receiver -> update checkpoint after each chunk
+receiver -> remove checkpoint after successful SHA-256 verification
+```
+
+## Integrity Verification
+
+PacketBridge uses SHA-256 to verify file integrity after transfer:
+
+```text
+sender -> compute SHA-256 for input
+sender -> send chunks
+sender -> send hash packet
+receiver -> compute SHA-256 for output
+receiver -> compare expected and computed hashes
+```
+
+SHA-256 detects accidental corruption or mismatched content. It does not encrypt data and does not provide confidentiality.
+
+## Protocol Sequence
+
+Fresh transfer:
+
+```text
+sender                              receiver
+  | -------- manifest ------------> |
+  | <--- missing chunks: all ------- |
+  | -------- chunk header --------> |
+  | -------- chunk payload -------> |
+  |              ...                |
+  | -------- hash packet ---------> |
+  |                                 | verify SHA-256
+```
+
+Checkpoint continuation:
+
+```text
+sender                              receiver
+  | -------- manifest ------------> |
+  | <--- missing chunks: subset ---- |
+  | ---- requested chunk header ---> |
+  | ---- requested chunk payload --> |
+  |              ...                |
+  | -------- hash packet ---------> |
+  |                                 | verify and delete checkpoint
+```
+
+## Design Tradeoffs
+
+- Synchronous sockets keep the control flow easy to understand.
+- TCP provides reliable byte delivery, while PacketBridge adds application-level framing.
+- The receiver owns checkpoint state because it owns the partially written output file.
+- Human-readable checkpoint files make local inspection easy during development.
+- SHA-256 is implemented in-repo to avoid external dependencies.
+
+## Future Work
+
+- Automated tests for codecs, checkpoint loading, and transfer loops.
+- Richer acknowledgement messages for sender/receiver status.
+- Multiple concurrent transfers.
+- Optional confidentiality features.
+- Better local interface detection for discovery self-filtering.
