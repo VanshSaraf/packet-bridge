@@ -55,11 +55,10 @@ struct ContinueRequest {
     std::uint64_t next_required_chunk = 0;
 };
 
-// Carries a SHA-256 digest for whole-file or per-chunk integrity checks.
+// Sender -> receiver: sent after all chunks to carry the expected file digest.
 struct HashPacket {
     std::uint64_t session_id = 0;
-    std::uint64_t chunk_index = 0;
-    std::array<std::uint8_t, kSha256DigestSize> sha256{};
+    std::string sha256_hex;
 };
 
 }  // namespace packetbridge::net::protocol

@@ -12,6 +12,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_library(packetbridge_core
     src/common/logger.cpp
+    src/crypto/sha256.cpp
     src/discovery/discovery_message.cpp
     src/net/endpoint.cpp
     src/net/socket_runtime.cpp
@@ -21,6 +22,7 @@ add_library(packetbridge_core
     src/net/udp_socket.cpp
     src/transfer/chunk_codec.cpp
     src/transfer/file_utils.cpp
+    src/transfer/hash_codec.cpp
     src/transfer/manifest_codec.cpp
     src/transfer/progress_tracker.cpp
 )

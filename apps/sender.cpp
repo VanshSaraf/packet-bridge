@@ -1,11 +1,13 @@
 #include "common/constants.hpp"
 #include "common/logger.hpp"
+#include "crypto/sha256.hpp"
 #include "net/endpoint.hpp"
 #include "net/protocol.hpp"
 #include "net/socket_runtime.hpp"
 #include "net/tcp_socket.hpp"
 #include "transfer/chunk_codec.hpp"
 #include "transfer/file_utils.hpp"
+#include "transfer/hash_codec.hpp"
 #include "transfer/manifest_codec.hpp"
 #include "transfer/progress_tracker.hpp"
 
@@ -91,8 +93,11 @@ int main(int argc, char* argv[]) {
         static_cast<std::uint32_t>(packetbridge::common::kDefaultChunkSize);
 
     std::uint64_t size = 0;
+    std::string expected_hash;
     try {
         size = packetbridge::transfer::file_size(file_path);
+        packetbridge::common::info("Computing SHA-256 for input file");
+        expected_hash = packetbridge::crypto::sha256_file(file_path);
     } catch (const std::exception& ex) {
         packetbridge::common::error(ex.what());
         return 1;
@@ -129,11 +134,20 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    packetbridge::net::protocol::HashPacket hash_packet;
+    hash_packet.session_id = manifest.session_id;
+    hash_packet.sha256_hex = expected_hash;
+    if (!packetbridge::transfer::send_hash_packet(socket, hash_packet)) {
+        packetbridge::common::error("Failed to send SHA-256 hash packet");
+        return 1;
+    }
+
     packetbridge::common::info("Transfer complete: " + manifest.filename);
     packetbridge::common::info("Chunks sent: " + std::to_string(progress.chunks_completed()) +
                                "/" + std::to_string(manifest.chunk_count));
     packetbridge::common::info("Bytes sent: " + std::to_string(progress.bytes_transferred()) +
                                "/" + std::to_string(manifest.file_size));
+    packetbridge::common::info("Expected SHA-256: " + expected_hash);
     packetbridge::common::info("Transfer summary: " + progress.summary_line());
     return 0;
 }

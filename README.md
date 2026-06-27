@@ -9,7 +9,7 @@ PacketBridge is a Secure P2P LAN Transfer Engine planned around automatic local 
 - Custom binary protocol with versioned message types.
 - Transfer sessions backed by file manifests.
 - ACK/checkpoint-based continuation support for interrupted transfers.
-- SHA-256 verification for received files and future chunk validation.
+- SHA-256 verification for received files.
 - Clean modular C++17 implementation with CMake builds.
 
 ## Architecture Overview
@@ -24,9 +24,9 @@ PacketBridge is a Secure P2P LAN Transfer Engine planned around automatic local 
 
 ## Current Status
 
-Foundation/scaffold, reusable networking core, UDP LAN discovery, and chunked TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, chunk headers, progress metrics, and byte-count verification for received files.
+Foundation/scaffold, reusable networking core, UDP LAN discovery, and chunked TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, chunk headers, progress metrics, byte-count verification, and SHA-256 integrity verification for received files.
 
-Integrity hashing and interrupted-transfer continuation are planned but not implemented yet.
+Interrupted-transfer continuation is planned but not implemented yet. Transfer data is not encrypted; SHA-256 verifies file integrity, not confidentiality.
 
 ## Discovery Usage
 
@@ -64,7 +64,15 @@ From another terminal or device, send a file to the receiver IP:
 ./build/packetbridge_sender 192.168.1.25 ./example.bin
 ```
 
-The sender connects to the default transfer TCP port, sends a binary file manifest, then streams chunks. Each chunk has a binary header with its index, byte offset, and payload size. The receiver writes `received_<filename>`, validates each chunk header, reports progress with speed and ETA, and verifies that the received byte count matches the manifest.
+The sender connects to the default transfer TCP port, sends a binary file manifest, then streams chunks. Each chunk has a binary header with its index, byte offset, and payload size. After all chunks, the sender sends the expected SHA-256 digest. The receiver writes `received_<filename>`, validates each chunk header, reports progress with speed and ETA, verifies that the received byte count matches the manifest, computes SHA-256 locally, and compares it with the sender-provided digest.
+
+Example receiver integrity output:
+
+```text
+Expected SHA-256: <64 lowercase hex characters>
+Computed SHA-256: <64 lowercase hex characters>
+SHA-256 integrity verified
+```
 
 ## Build Instructions
 
@@ -87,7 +95,7 @@ cmake --build build --config Debug
 
 ## Roadmap
 
-1. Add SHA-256 integrity verification for completed transfers.
-2. Add ACK/checkpoint persistence and interrupted-transfer continuation.
-3. Expand transfer session lifecycle management.
+1. Add ACK/checkpoint persistence and interrupted-transfer continuation.
+2. Expand transfer session lifecycle management.
+3. Add optional confidentiality features for transfer data.
 4. Add automated tests for protocol, networking, and transfer workflows.

@@ -1,15 +1,18 @@
 #include "common/constants.hpp"
 #include "common/logger.hpp"
+#include "crypto/sha256.hpp"
 #include "net/protocol.hpp"
 #include "net/socket_runtime.hpp"
 #include "net/tcp_server.hpp"
 #include "transfer/chunk_codec.hpp"
 #include "transfer/file_utils.hpp"
+#include "transfer/hash_codec.hpp"
 #include "transfer/manifest_codec.hpp"
 #include "transfer/progress_tracker.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <exception>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -122,7 +125,6 @@ int main(int argc, char* argv[]) {
     if (progress.bytes_transferred() == manifest.file_size) {
         packetbridge::common::info("Byte-count verification passed: " +
                                    std::to_string(progress.bytes_transferred()) + " bytes received");
-        packetbridge::common::info("Transfer complete: " + output_path);
         packetbridge::common::info("Chunks received: " +
                                    std::to_string(progress.chunks_completed()) + "/" +
                                    std::to_string(manifest.chunk_count));
@@ -131,6 +133,32 @@ int main(int argc, char* argv[]) {
         packetbridge::common::error("Byte-count verification failed: expected " +
                                     std::to_string(manifest.file_size) + " bytes, received " +
                                     std::to_string(progress.bytes_transferred()));
+        return 1;
+    }
+
+    packetbridge::net::protocol::HashPacket hash_packet;
+    if (!packetbridge::transfer::receive_hash_packet(client, hash_packet) ||
+        hash_packet.session_id != manifest.session_id) {
+        packetbridge::common::error("Failed to receive valid SHA-256 hash packet");
+        return 1;
+    }
+
+    std::string computed_hash;
+    try {
+        packetbridge::common::info("Computing SHA-256 for received file");
+        computed_hash = packetbridge::crypto::sha256_file(output_path);
+    } catch (const std::exception& ex) {
+        packetbridge::common::error(ex.what());
+        return 1;
+    }
+
+    packetbridge::common::info("Expected SHA-256: " + hash_packet.sha256_hex);
+    packetbridge::common::info("Computed SHA-256: " + computed_hash);
+    if (computed_hash == hash_packet.sha256_hex) {
+        packetbridge::common::info("SHA-256 integrity verified");
+        packetbridge::common::info("Transfer complete: " + output_path);
+    } else {
+        packetbridge::common::error("SHA-256 integrity failed");
         return 1;
     }
 
