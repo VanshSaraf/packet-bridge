@@ -127,6 +127,12 @@ bool receive_file_manifest(net::TcpSocket& socket, net::protocol::FileManifest& 
         return false;
     }
 
+    const std::uint64_t expected_chunks =
+        (manifest.file_size + manifest.chunk_size - 1) / manifest.chunk_size;
+    if (manifest.chunk_count != expected_chunks) {
+        return false;
+    }
+
     manifest.filename = std::string(payload.begin() + static_cast<std::ptrdiff_t>(offset),
                                     payload.end());
     manifest.file_sha256 = {};

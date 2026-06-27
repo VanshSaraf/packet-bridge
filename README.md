@@ -24,7 +24,7 @@ PacketBridge is a Secure P2P LAN Transfer Engine planned around automatic local 
 
 ## Current Status
 
-Foundation/scaffold, reusable networking core, UDP LAN discovery, and TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, and byte-count verification for received files.
+Foundation/scaffold, reusable networking core, UDP LAN discovery, and chunked TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, chunk headers, progress metrics, and byte-count verification for received files.
 
 Integrity hashing and interrupted-transfer continuation are planned but not implemented yet.
 
@@ -64,7 +64,7 @@ From another terminal or device, send a file to the receiver IP:
 ./build/packetbridge_sender 192.168.1.25 ./example.bin
 ```
 
-The sender connects to the default transfer TCP port, sends a binary file manifest, then streams file bytes. The receiver writes `received_<filename>` and verifies that the received byte count matches the manifest.
+The sender connects to the default transfer TCP port, sends a binary file manifest, then streams chunks. Each chunk has a binary header with its index, byte offset, and payload size. The receiver writes `received_<filename>`, validates each chunk header, reports progress with speed and ETA, and verifies that the received byte count matches the manifest.
 
 ## Build Instructions
 

@@ -23,7 +23,7 @@ enum class MessageType : std::uint8_t {
     Error = 255,
 };
 
-// Sent from sender to receiver before file bytes to describe the transfer plan.
+// Sender -> receiver: sent before chunk data to describe the transfer plan.
 struct FileManifest {
     std::string filename;
     std::uint64_t file_size = 0;
@@ -34,14 +34,16 @@ struct FileManifest {
     std::uint64_t session_id = 0;
 };
 
-// Prefixes each TCP payload chunk with its transfer and ordering metadata.
+// Sender -> receiver: sent before each chunk payload so the receiver can
+// validate ordering, size, and write offset before accepting bytes.
 struct ChunkHeader {
     std::uint64_t session_id = 0;
     std::uint64_t chunk_index = 0;
+    std::uint64_t byte_offset = 0;
     std::uint32_t payload_size = 0;
 };
 
-// Confirms durable receipt of chunks so a sender can checkpoint progress.
+// Receiver -> sender: reserved for future durable chunk receipt tracking.
 struct ChunkAck {
     std::uint64_t session_id = 0;
     std::uint64_t highest_contiguous_chunk = 0;

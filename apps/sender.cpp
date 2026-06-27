@@ -4,8 +4,10 @@
 #include "net/protocol.hpp"
 #include "net/socket_runtime.hpp"
 #include "net/tcp_socket.hpp"
+#include "transfer/chunk_codec.hpp"
 #include "transfer/file_utils.hpp"
 #include "transfer/manifest_codec.hpp"
+#include "transfer/progress_tracker.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -20,22 +22,22 @@ void print_usage() {
     packetbridge::common::info("Usage: packetbridge_sender <receiver_ip> <file_path>");
 }
 
-bool send_file_bytes(packetbridge::net::TcpSocket& socket,
-                     const std::string& file_path,
-                     std::uint64_t file_size,
-                     std::uint32_t chunk_size) {
+bool send_file_chunks(packetbridge::net::TcpSocket& socket,
+                      const std::string& file_path,
+                      const packetbridge::net::protocol::FileManifest& manifest,
+                      packetbridge::transfer::ProgressTracker& progress) {
     std::ifstream input(file_path, std::ios::binary);
     if (!input) {
         packetbridge::common::error("Unable to open input file: " + file_path);
         return false;
     }
 
-    std::vector<std::uint8_t> buffer(chunk_size);
+    std::vector<std::uint8_t> buffer(manifest.chunk_size);
     std::uint64_t bytes_sent = 0;
-    int last_percent = -1;
+    std::uint64_t chunk_index = 0;
 
-    while (bytes_sent < file_size) {
-        const std::uint64_t remaining = file_size - bytes_sent;
+    while (bytes_sent < manifest.file_size) {
+        const std::uint64_t remaining = manifest.file_size - bytes_sent;
         const std::size_t to_read = static_cast<std::size_t>(
             std::min<std::uint64_t>(remaining, buffer.size()));
 
@@ -46,17 +48,26 @@ bool send_file_bytes(packetbridge::net::TcpSocket& socket,
             return false;
         }
 
+        packetbridge::net::protocol::ChunkHeader header;
+        header.session_id = manifest.session_id;
+        header.chunk_index = chunk_index;
+        header.byte_offset = bytes_sent;
+        header.payload_size = static_cast<std::uint32_t>(bytes_read);
+
+        if (!packetbridge::transfer::send_chunk_header(socket, header)) {
+            packetbridge::common::error("Failed to send chunk header");
+            return false;
+        }
+
         if (!socket.send_all(buffer.data(), static_cast<std::size_t>(bytes_read))) {
             return false;
         }
 
         bytes_sent += static_cast<std::uint64_t>(bytes_read);
-        const int percent = file_size == 0
-                                ? 100
-                                : static_cast<int>((bytes_sent * 100) / file_size);
-        if (percent != last_percent && (percent % 10 == 0 || percent == 100)) {
-            packetbridge::common::info("Transfer progress: " + std::to_string(percent) + "%");
-            last_percent = percent;
+        ++chunk_index;
+        progress.add_progress(static_cast<std::uint64_t>(bytes_read), 1);
+        if (progress.should_report()) {
+            packetbridge::common::info(progress.progress_line());
         }
     }
 
@@ -101,6 +112,7 @@ int main(int argc, char* argv[]) {
     packetbridge::common::info("File: " + manifest.filename);
     packetbridge::common::info("File size: " + std::to_string(manifest.file_size) + " bytes");
     packetbridge::common::info("Total chunks: " + std::to_string(manifest.chunk_count));
+    packetbridge::common::info("Chunk size: " + std::to_string(manifest.chunk_size) + " bytes");
 
     packetbridge::net::TcpSocket socket;
     if (!socket.connect_to(packetbridge::net::Endpoint{receiver_ip, transfer_port})) {
@@ -112,10 +124,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (!send_file_bytes(socket, file_path, manifest.file_size, manifest.chunk_size)) {
+    packetbridge::transfer::ProgressTracker progress(manifest.file_size, manifest.chunk_count);
+    if (!send_file_chunks(socket, file_path, manifest, progress)) {
         return 1;
     }
 
     packetbridge::common::info("Transfer complete: " + manifest.filename);
+    packetbridge::common::info("Chunks sent: " + std::to_string(progress.chunks_completed()) +
+                               "/" + std::to_string(manifest.chunk_count));
+    packetbridge::common::info("Bytes sent: " + std::to_string(progress.bytes_transferred()) +
+                               "/" + std::to_string(manifest.file_size));
+    packetbridge::common::info("Transfer summary: " + progress.summary_line());
     return 0;
 }
