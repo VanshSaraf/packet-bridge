@@ -18,15 +18,15 @@ PacketBridge is a Secure P2P LAN Transfer Engine planned around automatic local 
 - `include/common` and `src/common`: shared constants, logging, and general utilities.
 - `include/net` and `src/net`: socket runtime compatibility, endpoints, TCP client/server wrappers, UDP socket wrapper, low-level socket helpers, and protocol types.
 - `include/discovery` and `src/discovery`: UDP discovery message helpers and peer models.
-- `include/transfer` and `src/transfer`: manifest serialization, filename safety helpers, file sizing, chunk counting, and future transfer session logic.
+- `include/transfer` and `src/transfer`: manifest serialization, checkpoint recovery, filename safety helpers, file sizing, chunk counting, and future transfer session logic.
 - `docs/`: design notes and protocol documentation as the engine evolves.
 - `tests/`: unit and integration tests.
 
 ## Current Status
 
-Foundation/scaffold, reusable networking core, UDP LAN discovery, and chunked TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, chunk headers, progress metrics, byte-count verification, and SHA-256 integrity verification for received files.
+Foundation/scaffold, reusable networking core, UDP LAN discovery, and chunked TCP file transfer v1 are in place. The project includes shared constants, logging, socket runtime setup, endpoint helpers, low-level socket utilities, TCP client/server abstractions, a UDP socket abstraction, discovery message parsing/building, a live peer table in the listener, manifest exchange, chunk headers, checkpoint-based interrupted-transfer continuation, progress metrics, byte-count verification, and SHA-256 integrity verification for received files.
 
-Interrupted-transfer continuation is planned but not implemented yet. Transfer data is not encrypted; SHA-256 verifies file integrity, not confidentiality.
+Transfer data is not encrypted; SHA-256 verifies file integrity, not confidentiality.
 
 ## Discovery Usage
 
@@ -66,6 +66,8 @@ From another terminal or device, send a file to the receiver IP:
 
 The sender connects to the default transfer TCP port, sends a binary file manifest, then streams chunks. Each chunk has a binary header with its index, byte offset, and payload size. After all chunks, the sender sends the expected SHA-256 digest. The receiver writes `received_<filename>`, validates each chunk header, reports progress with speed and ETA, verifies that the received byte count matches the manifest, computes SHA-256 locally, and compares it with the sender-provided digest.
 
+If a transfer is interrupted, restart the receiver and sender with the same file and output directory. The receiver uses a `received_<filename>.pbcheckpoint` sidecar file to request only missing chunks. The checkpoint file is removed after successful SHA-256 verification.
+
 Example receiver integrity output:
 
 ```text
@@ -95,7 +97,7 @@ cmake --build build --config Debug
 
 ## Roadmap
 
-1. Add ACK/checkpoint persistence and interrupted-transfer continuation.
+1. Add ACK tracking for richer sender/receiver status.
 2. Expand transfer session lifecycle management.
 3. Add optional confidentiality features for transfer data.
 4. Add automated tests for protocol, networking, and transfer workflows.

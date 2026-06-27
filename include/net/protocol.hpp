@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace packetbridge::net::protocol {
 
@@ -49,10 +50,11 @@ struct ChunkAck {
     std::uint64_t highest_contiguous_chunk = 0;
 };
 
-// Asks a peer to continue from the first missing chunk after interruption.
+// Receiver -> sender: lists chunks still needed for interrupted-transfer continuation.
 struct ContinueRequest {
     std::uint64_t session_id = 0;
-    std::uint64_t next_required_chunk = 0;
+    std::uint64_t total_chunks = 0;
+    std::vector<std::uint64_t> missing_chunk_indexes;
 };
 
 // Sender -> receiver: sent after all chunks to carry the expected file digest.

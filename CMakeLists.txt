@@ -21,6 +21,8 @@ add_library(packetbridge_core
     src/net/tcp_socket.cpp
     src/net/udp_socket.cpp
     src/transfer/chunk_codec.cpp
+    src/transfer/checkpoint.cpp
+    src/transfer/continuation_codec.cpp
     src/transfer/file_utils.cpp
     src/transfer/hash_codec.cpp
     src/transfer/manifest_codec.cpp
