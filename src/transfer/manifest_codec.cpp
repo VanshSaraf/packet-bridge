@@ -62,8 +62,42 @@ std::uint64_t read_u64(const std::vector<std::uint8_t>& input, std::size_t& offs
 }  // namespace
 
 bool send_file_manifest(net::TcpSocket& socket, const net::protocol::FileManifest& manifest) {
-    if (manifest.filename.size() > common::kMaxFilenameLength) {
+    const std::vector<std::uint8_t> payload = serialize_file_manifest(manifest);
+    if (payload.empty()) {
         return false;
+    }
+
+    return socket.send_all(payload);
+}
+
+bool receive_file_manifest(net::TcpSocket& socket, net::protocol::FileManifest& manifest) {
+    std::vector<std::uint8_t> size_frame(sizeof(std::uint32_t));
+    if (!socket.recv_exact(size_frame)) {
+        return false;
+    }
+
+    std::size_t offset = 0;
+    const std::uint32_t payload_size = read_u32(size_frame, offset);
+    if (payload_size < kManifestHeaderSize ||
+        payload_size > kManifestHeaderSize + common::kMaxFilenameLength) {
+        return false;
+    }
+
+    std::vector<std::uint8_t> payload(sizeof(std::uint32_t) + payload_size);
+    for (std::size_t i = 0; i < size_frame.size(); ++i) {
+        payload[i] = size_frame[i];
+    }
+
+    if (!socket.recv_exact(payload.data() + size_frame.size(), payload_size)) {
+        return false;
+    }
+
+    return deserialize_file_manifest(payload, manifest);
+}
+
+std::vector<std::uint8_t> serialize_file_manifest(const net::protocol::FileManifest& manifest) {
+    if (manifest.filename.size() > common::kMaxFilenameLength) {
+        return {};
     }
 
     std::vector<std::uint8_t> payload;
@@ -82,29 +116,27 @@ bool send_file_manifest(net::TcpSocket& socket, const net::protocol::FileManifes
     const std::uint32_t payload_size = static_cast<std::uint32_t>(payload.size());
     std::vector<std::uint8_t> frame;
     append_u32(frame, payload_size);
-
-    return socket.send_all(frame) && socket.send_all(payload);
+    frame.insert(frame.end(), payload.begin(), payload.end());
+    return frame;
 }
 
-bool receive_file_manifest(net::TcpSocket& socket, net::protocol::FileManifest& manifest) {
-    std::vector<std::uint8_t> size_frame(sizeof(std::uint32_t));
-    if (!socket.recv_exact(size_frame)) {
+bool deserialize_file_manifest(const std::vector<std::uint8_t>& frame,
+                               net::protocol::FileManifest& manifest) {
+    if (frame.size() < sizeof(std::uint32_t)) {
         return false;
     }
 
     std::size_t offset = 0;
-    const std::uint32_t payload_size = read_u32(size_frame, offset);
+    const std::uint32_t payload_size = read_u32(frame, offset);
     if (payload_size < kManifestHeaderSize ||
-        payload_size > kManifestHeaderSize + common::kMaxFilenameLength) {
-        return false;
-    }
-
-    std::vector<std::uint8_t> payload(payload_size);
-    if (!socket.recv_exact(payload)) {
+        payload_size > kManifestHeaderSize + common::kMaxFilenameLength ||
+        frame.size() != sizeof(std::uint32_t) + payload_size) {
         return false;
     }
 
     offset = 0;
+    std::vector<std::uint8_t> payload(frame.begin() + static_cast<std::ptrdiff_t>(sizeof(std::uint32_t)),
+                                      frame.end());
     const std::uint32_t magic = read_u32(payload, offset);
     if (magic != kManifestMagic) {
         return false;

@@ -51,4 +51,8 @@ target_link_libraries(packetbridge_sender PRIVATE packetbridge_core)
 add_executable(packetbridge_receiver apps/receiver.cpp)
 target_link_libraries(packetbridge_receiver PRIVATE packetbridge_core)
 
+add_executable(packetbridge_tests tests/packetbridge_tests.cpp)
+target_link_libraries(packetbridge_tests PRIVATE packetbridge_core)
+
 enable_testing()
+add_test(NAME packetbridge_tests COMMAND packetbridge_tests)

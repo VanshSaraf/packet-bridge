@@ -41,6 +41,34 @@ std::uint64_t read_u64(const std::vector<std::uint8_t>& input, std::size_t& offs
 }  // namespace
 
 bool send_continue_request(net::TcpSocket& socket, const net::protocol::ContinueRequest& request) {
+    return socket.send_all(serialize_continue_request(request));
+}
+
+bool receive_continue_request(net::TcpSocket& socket, net::protocol::ContinueRequest& request) {
+    constexpr std::size_t fixed_size = sizeof(std::uint32_t) + 3 * sizeof(std::uint64_t);
+    std::vector<std::uint8_t> fixed_payload(fixed_size);
+    if (!socket.recv_exact(fixed_payload)) {
+        return false;
+    }
+
+    std::size_t offset = sizeof(std::uint32_t) + 2 * sizeof(std::uint64_t);
+    const std::uint64_t missing_count = read_u64(fixed_payload, offset);
+    if (missing_count > kMaxChunkIndexes) {
+        return false;
+    }
+
+    std::vector<std::uint8_t> payload = fixed_payload;
+    const std::size_t index_bytes = static_cast<std::size_t>(missing_count * sizeof(std::uint64_t));
+    payload.resize(fixed_size + index_bytes);
+    if (index_bytes > 0 && !socket.recv_exact(payload.data() + fixed_size, index_bytes)) {
+        return false;
+    }
+
+    return deserialize_continue_request(payload, request);
+}
+
+std::vector<std::uint8_t> serialize_continue_request(
+    const net::protocol::ContinueRequest& request) {
     std::vector<std::uint8_t> payload;
     payload.reserve(sizeof(std::uint32_t) + (3 + request.missing_chunk_indexes.size()) *
                                             sizeof(std::uint64_t));
@@ -53,39 +81,34 @@ bool send_continue_request(net::TcpSocket& socket, const net::protocol::Continue
         append_u64(payload, index);
     }
 
-    return socket.send_all(payload);
+    return payload;
 }
 
-bool receive_continue_request(net::TcpSocket& socket, net::protocol::ContinueRequest& request) {
+bool deserialize_continue_request(const std::vector<std::uint8_t>& payload,
+                                  net::protocol::ContinueRequest& request) {
     constexpr std::size_t fixed_size = sizeof(std::uint32_t) + 3 * sizeof(std::uint64_t);
-    std::vector<std::uint8_t> fixed_payload(fixed_size);
-    if (!socket.recv_exact(fixed_payload)) {
+    if (payload.size() < fixed_size) {
         return false;
     }
 
     std::size_t offset = 0;
-    const std::uint32_t magic = read_u32(fixed_payload, offset);
+    const std::uint32_t magic = read_u32(payload, offset);
     if (magic != kContinueRequestMagic) {
         return false;
     }
 
-    request.session_id = read_u64(fixed_payload, offset);
-    request.total_chunks = read_u64(fixed_payload, offset);
-    const std::uint64_t missing_count = read_u64(fixed_payload, offset);
-    if (missing_count > kMaxChunkIndexes) {
-        return false;
-    }
-
-    std::vector<std::uint8_t> index_payload(missing_count * sizeof(std::uint64_t));
-    if (!index_payload.empty() && !socket.recv_exact(index_payload)) {
+    request.session_id = read_u64(payload, offset);
+    request.total_chunks = read_u64(payload, offset);
+    const std::uint64_t missing_count = read_u64(payload, offset);
+    if (missing_count > kMaxChunkIndexes ||
+        payload.size() != fixed_size + missing_count * sizeof(std::uint64_t)) {
         return false;
     }
 
     request.missing_chunk_indexes.clear();
     request.missing_chunk_indexes.reserve(static_cast<std::size_t>(missing_count));
-    offset = 0;
     for (std::uint64_t i = 0; i < missing_count; ++i) {
-        request.missing_chunk_indexes.push_back(read_u64(index_payload, offset));
+        request.missing_chunk_indexes.push_back(read_u64(payload, offset));
     }
 
     return true;

@@ -14,7 +14,7 @@ PacketBridge is a C++17 peer-to-peer LAN transfer engine for discovering nearby 
 | Progress metrics | Implemented | Progress bar, chunks, speed, ETA, elapsed time, and summaries. |
 | SHA-256 verification | Implemented | Sender sends expected digest; receiver hashes output and compares. |
 | Encryption | Not implemented | SHA-256 verifies integrity, not confidentiality. |
-| Automated tests | Planned | Current verification is manual smoke testing. |
+| Automated tests | Implemented | Lightweight assert-based codec and utility tests. |
 
 ## Architecture Overview
 
@@ -77,6 +77,13 @@ packetbridge_listener
 packetbridge_broadcaster
 packetbridge_receiver
 packetbridge_sender
+packetbridge_tests
+```
+
+Run tests:
+
+```sh
+ctest --test-dir build --output-on-failure
 ```
 
 ## Usage Guide
@@ -194,7 +201,8 @@ tests/                Placeholder for future automated tests
 - Receiver accepts one sender connection per process run.
 - Discovery uses IPv4 broadcast by default.
 - Checkpoint files trust local disk state and validate completion with final SHA-256.
-- Automated tests are not implemented yet.
+- Discovery and transfer still run as separate executables.
+- Sender target IP is provided manually.
 
 ## Troubleshooting
 
@@ -209,9 +217,9 @@ tests/                Placeholder for future automated tests
 1. Add richer sender/receiver status using acknowledgement messages.
 2. Expand transfer session lifecycle management.
 3. Add optional confidentiality features for transfer data.
-4. Add automated unit and integration tests.
+4. Add broader integration coverage.
 5. Add packaging and release artifacts.
 
 ## License
 
-No license file is present yet. Add a license before distributing PacketBridge as an open-source project.
+PacketBridge is released under the MIT License. See [LICENSE](LICENSE).

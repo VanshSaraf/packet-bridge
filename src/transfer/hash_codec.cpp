@@ -45,8 +45,25 @@ std::uint64_t read_u64(const std::vector<std::uint8_t>& input, std::size_t& offs
 }  // namespace
 
 bool send_hash_packet(net::TcpSocket& socket, const net::protocol::HashPacket& packet) {
-    if (!crypto::is_sha256_hex(packet.sha256_hex)) {
+    const std::vector<std::uint8_t> payload = serialize_hash_packet(packet);
+    if (payload.empty()) {
         return false;
+    }
+    return socket.send_all(payload);
+}
+
+bool receive_hash_packet(net::TcpSocket& socket, net::protocol::HashPacket& packet) {
+    std::vector<std::uint8_t> payload(kHashPacketSize);
+    if (!socket.recv_exact(payload)) {
+        return false;
+    }
+
+    return deserialize_hash_packet(payload, packet);
+}
+
+std::vector<std::uint8_t> serialize_hash_packet(const net::protocol::HashPacket& packet) {
+    if (!crypto::is_sha256_hex(packet.sha256_hex)) {
+        return {};
     }
 
     std::vector<std::uint8_t> payload;
@@ -54,12 +71,12 @@ bool send_hash_packet(net::TcpSocket& socket, const net::protocol::HashPacket& p
     append_u32(payload, kHashPacketMagic);
     append_u64(payload, packet.session_id);
     payload.insert(payload.end(), packet.sha256_hex.begin(), packet.sha256_hex.end());
-    return socket.send_all(payload);
+    return payload;
 }
 
-bool receive_hash_packet(net::TcpSocket& socket, net::protocol::HashPacket& packet) {
-    std::vector<std::uint8_t> payload(kHashPacketSize);
-    if (!socket.recv_exact(payload)) {
+bool deserialize_hash_packet(const std::vector<std::uint8_t>& payload,
+                             net::protocol::HashPacket& packet) {
+    if (payload.size() != kHashPacketSize) {
         return false;
     }
 

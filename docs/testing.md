@@ -1,6 +1,6 @@
-# PacketBridge Manual Testing
+# PacketBridge Testing
 
-Automated tests are planned. Until then, these smoke tests verify the main local workflows.
+PacketBridge includes lightweight assert-based C++ tests plus manual smoke tests for local networking workflows.
 
 ## Build
 
@@ -10,6 +10,28 @@ cmake --build build
 ```
 
 If CMake is unavailable, build with your platform compiler or IDE using C++17 and the sources listed in `CMakeLists.txt`.
+
+## Automated Tests
+
+The CMake build creates `packetbridge_tests`.
+
+```sh
+ctest --test-dir build --output-on-failure
+```
+
+The tests cover:
+
+- SHA-256 known vector for `abc`
+- filename sanitization
+- file manifest serialization
+- chunk header serialization
+- hash packet serialization
+- continuation request serialization
+- checkpoint save/load behavior
+
+## CI
+
+The GitHub Actions workflow in `.github/workflows/ci.yml` configures CMake on Ubuntu, builds all targets, and runs `ctest`.
 
 ## Discovery Smoke Test
 

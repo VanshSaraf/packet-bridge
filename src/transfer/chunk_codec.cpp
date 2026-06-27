@@ -43,6 +43,19 @@ std::uint64_t read_u64(const std::vector<std::uint8_t>& input, std::size_t& offs
 }  // namespace
 
 bool send_chunk_header(net::TcpSocket& socket, const net::protocol::ChunkHeader& header) {
+    return socket.send_all(serialize_chunk_header(header));
+}
+
+bool receive_chunk_header(net::TcpSocket& socket, net::protocol::ChunkHeader& header) {
+    std::vector<std::uint8_t> payload(kChunkHeaderSize);
+    if (!socket.recv_exact(payload)) {
+        return false;
+    }
+
+    return deserialize_chunk_header(payload, header);
+}
+
+std::vector<std::uint8_t> serialize_chunk_header(const net::protocol::ChunkHeader& header) {
     std::vector<std::uint8_t> payload;
     payload.reserve(kChunkHeaderSize);
 
@@ -51,13 +64,12 @@ bool send_chunk_header(net::TcpSocket& socket, const net::protocol::ChunkHeader&
     append_u64(payload, header.chunk_index);
     append_u64(payload, header.byte_offset);
     append_u32(payload, header.payload_size);
-
-    return socket.send_all(payload);
+    return payload;
 }
 
-bool receive_chunk_header(net::TcpSocket& socket, net::protocol::ChunkHeader& header) {
-    std::vector<std::uint8_t> payload(kChunkHeaderSize);
-    if (!socket.recv_exact(payload)) {
+bool deserialize_chunk_header(const std::vector<std::uint8_t>& payload,
+                              net::protocol::ChunkHeader& header) {
+    if (payload.size() != kChunkHeaderSize) {
         return false;
     }
 
