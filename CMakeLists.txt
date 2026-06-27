@@ -19,6 +19,8 @@ add_library(packetbridge_core
     src/net/tcp_server.cpp
     src/net/tcp_socket.cpp
     src/net/udp_socket.cpp
+    src/transfer/file_utils.cpp
+    src/transfer/manifest_codec.cpp
 )
 
 target_include_directories(packetbridge_core
